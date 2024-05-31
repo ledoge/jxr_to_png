@@ -393,59 +393,55 @@ int main(int argc, char *argv[]) {
 
     spng_set_ihdr(enc, &ihdr);
 
-    {
-        unsigned char cicp_data[4] =
-                {
-                        9, // Colour Primaries (BT.2020)
-                        16, // Transfer Function (PQ)
-                        0, // Matrix Coefficients, always 0
-                        1  // The Video Full Range Flag value MUST be either 0 or 1.
-                };
+    unsigned char cicp_data[4] =
+            {
+                    9, // Colour Primaries (BT.2020)
+                    16, // Transfer Function (PQ)
+                    0, // Matrix Coefficients, always 0
+                    1  // The Video Full Range Flag value MUST be either 0 or 1.
+            };
 
-        unsigned char clli_data[8];
+    unsigned char clli_data[8];
 
-        uint32_t maxCLL_png = maxCLL * 10000;
-        uint32_t maxFALL_png = maxPALL * 10000;
+    uint32_t maxCLL_png = maxCLL * 10000;
+    uint32_t maxFALL_png = maxPALL * 10000;
 
-        clli_data[0] = (maxCLL_png >> 24) & 0xFF;
-        clli_data[1] = (maxCLL_png >> 16) & 0xFF;
-        clli_data[2] = (maxCLL_png >> 8) & 0xFF;
-        clli_data[3] = maxCLL_png & 0xFF;
+    clli_data[0] = (maxCLL_png >> 24) & 0xFF;
+    clli_data[1] = (maxCLL_png >> 16) & 0xFF;
+    clli_data[2] = (maxCLL_png >> 8) & 0xFF;
+    clli_data[3] = maxCLL_png & 0xFF;
 
-        clli_data[4] = (maxFALL_png >> 24) & 0xFF;
-        clli_data[5] = (maxFALL_png >> 16) & 0xFF;
-        clli_data[6] = (maxFALL_png >> 8) & 0xFF;
-        clli_data[7] = maxFALL_png & 0xFF;
+    clli_data[4] = (maxFALL_png >> 24) & 0xFF;
+    clli_data[5] = (maxFALL_png >> 16) & 0xFF;
+    clli_data[6] = (maxFALL_png >> 8) & 0xFF;
+    clli_data[7] = maxFALL_png & 0xFF;
 
-        struct spng_unknown_chunk chunks[2] = {
-                {
-                        // cICP
-                        .type = {0x63, 0x49, 0x43, 0x50},
-                        .length = 4,
-                        .data = cicp_data,
-                        .location = SPNG_AFTER_IHDR, // Also means before PLTE
-                },
-                {
-                        // cLLi
-                        .type = {0x63, 0x4C, 0x4C, 0x69},
-                        .length = 8,
-                        .data = clli_data,
-                        .location = SPNG_AFTER_IHDR, // Also means before PLTE
-                }};
+    struct spng_unknown_chunk chunks[2] = {
+            {
+                    // cICP
+                    .type = {0x63, 0x49, 0x43, 0x50},
+                    .length = 4,
+                    .data = cicp_data,
+                    .location = SPNG_AFTER_IHDR, // Also means before PLTE
+            },
+            {
+                    // cLLi
+                    .type = {0x63, 0x4C, 0x4C, 0x69},
+                    .length = 8,
+                    .data = clli_data,
+                    .location = SPNG_AFTER_IHDR, // Also means before PLTE
+            }};
 
-        spng_set_unknown_chunks(enc, chunks, 2);
-    }
+    spng_set_unknown_chunks(enc, chunks, 2);
 
-    {
-        struct spng_iccp iccp = {
-                .profile = icc_data,
-                .profile_len = sizeof(icc_data)
-        };
+    struct spng_iccp iccp = {
+            .profile = icc_data,
+            .profile_len = sizeof(icc_data)
+    };
 
-        strcpy(iccp.profile_name, icc_name);
+    strcpy(iccp.profile_name, icc_name);
 
-        spng_set_iccp(enc, &iccp);
-    }
+    spng_set_iccp(enc, &iccp);
 
     printf("Doing PNG encoding...\n");
     int err = spng_encode_image(enc, converted, converted_size, SPNG_FMT_PNG, SPNG_ENCODE_FINALIZE);
