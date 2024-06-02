@@ -4,7 +4,6 @@
 #include <wincodec.h>
 #include <math.h>
 #include <stdint.h>
-#include <stdint-gcc.h>
 #include "png.h"
 #include "icc_profile.h"
 
