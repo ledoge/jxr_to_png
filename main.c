@@ -4,10 +4,11 @@
 #include <wincodec.h>
 #include <math.h>
 #include <stdint.h>
+#include <stdint-gcc.h>
+#include "png.h"
 #include "icc_profile.h"
-#include "spng.h"
 
-#define INTERMEDIATE_BITS 16  // bit depth of the integer texture given to the encoder
+#define INTERMEDIATE_BITS 16  // PNG bit depth (can only be 8 or 16, and 8 is insufficient for HDR)
 #define TARGET_BITS 10  // quantization bit depth
 
 #define MAXCLL_PERCENTILE 0.9999  // comment out to calculate true MaxCLL instead of top percentile
@@ -113,6 +114,74 @@ DWORD WINAPI ThreadFunc(LPVOID lpParam) {
     return 0;
 }
 
+int write_png_file(FILE *file, png_bytep data, uint32_t width, uint32_t height, uint16_t maxCLL, uint16_t maxFALL) {
+    png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if (!png) {
+        fprintf(stderr, "Could not create PNG write struct\n");
+        return 1;
+    }
+
+    png_infop info = png_create_info_struct(png);
+    if (!info) {
+        fprintf(stderr, "Could not create PNG info struct\n");
+        return 1;
+    }
+
+    if (setjmp(png_jmpbuf(png))) {
+        fprintf(stderr, "Error during PNG creation\n");
+        return 1;
+    }
+
+    png_init_io(png, file);
+
+    png_set_IHDR(
+            png, info, width, height, 16, PNG_COLOR_TYPE_RGB,
+            PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT
+    );
+
+    unsigned char cicp_data[4] = {9, 16, 0, 1};
+
+    unsigned char clli_data[8] = {
+            (maxCLL >> 24) & 0xFF,
+            (maxCLL >> 16) & 0xFF,
+            (maxCLL >> 8) & 0xFF,
+            maxCLL & 0xFF,
+            (maxFALL >> 24) & 0xFF,
+            (maxFALL >> 16) & 0xFF,
+            (maxFALL >> 8) & 0xFF,
+            maxFALL & 0xFF
+    };
+
+    png_unknown_chunk unknown_chunks[] = {
+            {.name = {'c', 'I', 'C', 'P'}, .data = cicp_data, .size = 4, .location = PNG_HAVE_IHDR},
+            {.name = {'c', 'L', 'L', 'i'}, .data = clli_data, .size = 8, .location = PNG_HAVE_IHDR}
+    };
+
+    int num_unknowns = sizeof(unknown_chunks) / sizeof(unknown_chunks[0]);
+
+    for (int i = 0; i < num_unknowns; i++) {
+        png_set_keep_unknown_chunks(png, PNG_HANDLE_CHUNK_ALWAYS, unknown_chunks[i].name, 1);
+        png_set_unknown_chunks(png, info, &unknown_chunks[i], 1);
+    }
+
+    png_set_iCCP(png, info, icc_name, PNG_COMPRESSION_TYPE_BASE, icc_data, sizeof(icc_data));
+
+    png_write_info(png, info);
+
+    // Swap endianness for 16-bit data
+    png_set_swap(png);
+
+    png_bytep row_pointers[height];
+    for (int y = 0; y < height; y++) {
+        row_pointers[y] = data + y * width * 6; // 6 bytes per pixel for RGB16
+    }
+
+    png_write_image(png, row_pointers);
+    png_write_end(png, NULL);
+
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 2 && argc != 3) {
         fprintf(stderr, "jxr_to_png input.jxr [output.png]\n");
@@ -171,7 +240,7 @@ int main(int argc, char *argv[]) {
     );
 
     if (FAILED(hr)) {
-        fprintf(stderr, "Failed to open file\n");
+        fprintf(stderr, "Failed to open input file\n");
         return 1;
     }
 
@@ -375,80 +444,18 @@ int main(int argc, char *argv[]) {
     FILE *f = _wfopen(outputFile, L"wb");
 
     if (!f) {
-        perror("Error opening file");
+        perror("Error opening output file");
         return 1;
     }
-
-    spng_ctx *enc = spng_ctx_new(SPNG_CTX_ENCODER);
-
-    spng_set_png_file(enc, f);
-
-    struct spng_ihdr ihdr =
-            {
-                    .width = width,
-                    .height = height,
-                    .bit_depth = INTERMEDIATE_BITS,
-                    .color_type = SPNG_COLOR_TYPE_TRUECOLOR
-            };
-
-    spng_set_ihdr(enc, &ihdr);
-
-    unsigned char cicp_data[4] =
-            {
-                    9, // Colour Primaries (BT.2020)
-                    16, // Transfer Function (PQ)
-                    0, // Matrix Coefficients, always 0
-                    1  // The Video Full Range Flag value MUST be either 0 or 1.
-            };
-
-    unsigned char clli_data[8];
 
     uint32_t maxCLL_png = maxCLL * 10000;
     uint32_t maxFALL_png = maxPALL * 10000;
 
-    clli_data[0] = (maxCLL_png >> 24) & 0xFF;
-    clli_data[1] = (maxCLL_png >> 16) & 0xFF;
-    clli_data[2] = (maxCLL_png >> 8) & 0xFF;
-    clli_data[3] = maxCLL_png & 0xFF;
-
-    clli_data[4] = (maxFALL_png >> 24) & 0xFF;
-    clli_data[5] = (maxFALL_png >> 16) & 0xFF;
-    clli_data[6] = (maxFALL_png >> 8) & 0xFF;
-    clli_data[7] = maxFALL_png & 0xFF;
-
-    struct spng_unknown_chunk chunks[2] = {
-            {
-                    // cICP
-                    .type = {0x63, 0x49, 0x43, 0x50},
-                    .length = 4,
-                    .data = cicp_data,
-                    .location = SPNG_AFTER_IHDR, // Also means before PLTE
-            },
-            {
-                    // cLLi
-                    .type = {0x63, 0x4C, 0x4C, 0x69},
-                    .length = 8,
-                    .data = clli_data,
-                    .location = SPNG_AFTER_IHDR, // Also means before PLTE
-            }};
-
-    spng_set_unknown_chunks(enc, chunks, 2);
-
-    struct spng_iccp iccp = {
-            .profile = icc_data,
-            .profile_len = sizeof(icc_data)
-    };
-
-    strcpy(iccp.profile_name, icc_name);
-
-    spng_set_iccp(enc, &iccp);
-
     printf("Doing PNG encoding...\n");
-    int err = spng_encode_image(enc, converted, converted_size, SPNG_FMT_PNG, SPNG_ENCODE_FINALIZE);
-
-    if (err) {
-        printf("Got error code %d from libspng\n", err);
+    if (write_png_file(f, (unsigned char *) converted, width, height, maxCLL_png, maxFALL_png)) {
+        printf("Error on PNG encode\n");
         return 1;
     }
+
     printf("Encode success: %ld total bytes\n", ftell(f));
 }
