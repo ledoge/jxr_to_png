@@ -3,8 +3,10 @@ project(jxr_to_png C)
 
 set(CMAKE_C_STANDARD 17)
 
-add_compile_options(-ffast-math -DSPNG_USE_MINIZ -DSPNG_STATIC)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+add_compile_options(-ffast-math)
 
-add_executable(jxr_to_png main.c spng.c miniz.c)
-target_link_libraries(jxr_to_png "$<$<CONFIG:Release>:-s -static>")
+find_library(PNG_LIBRARY png PATHS ${PROJECT_SOURCE_DIR}/lib REQUIRED NO_DEFAULT_PATH)
+find_library(Z_LIBRARY z PATHS ${PROJECT_SOURCE_DIR}/lib REQUIRED NO_DEFAULT_PATH)
+
+add_executable(jxr_to_png main.c)
+target_link_libraries(jxr_to_png ${PNG_LIBRARY} ${Z_LIBRARY} "$<$<CONFIG:Release>:-s -static>")
