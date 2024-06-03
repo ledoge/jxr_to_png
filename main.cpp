@@ -1,46 +1,45 @@
-#include <stdio.h>
-#include <string.h>
+#define _CRT_SECURE_NO_WARNINGS
+#define _XM_F16C_INTRINSICS_
+
+#include <cstdio>
+#include <cstring>
 #include <windows.h>
 #include <wincodec.h>
-#include <math.h>
-#include <stdint.h>
+#include <cmath>
+#include "DirectXMath/DirectXMath.h"
+#include "DirectXMath/DirectXPackedVector.h"
 #include "png.h"
 #include "icc_profile.h"
+
+using namespace DirectX;
+using namespace DirectX::PackedVector;
 
 #define INTERMEDIATE_BITS 16  // PNG bit depth (can only be 8 or 16, and 8 is insufficient for HDR)
 #define TARGET_BITS 10  // quantization bit depth
 
 #define MAXCLL_PERCENTILE 0.9999  // comment out to calculate true MaxCLL instead of top percentile
 
-static float m1 = 1305 / 8192.f;
-static float m2 = 2523 / 32.f;
-static float c1 = 107 / 128.f;
-static float c2 = 2413 / 128.f;
-static float c3 = 2392 / 128.f;
 
-float pq_inv_eotf(float y) {
-    return powf((c1 + c2 * powf(y, m1)) / (1 + c3 * powf(y, m1)), m2);
+static const XMVECTOR vm1 = XMVectorReplicate(1305.0f / 8192.0f);
+static const XMVECTOR vm2 = XMVectorReplicate(2523.0f / 32.0f);
+static const XMVECTOR vc1 = XMVectorReplicate(107.0f / 128.0f);
+static const XMVECTOR vc2 = XMVectorReplicate(2413.0f / 128.0f);
+static const XMVECTOR vc3 = XMVectorReplicate(2392.0f / 128.0f);
+
+XMVECTOR pq_inv_eotf(XMVECTOR y) {
+    XMVECTOR pow1 = XMVectorPow(y, vm1);
+    XMVECTOR numerator = XMVectorAdd(vc1, XMVectorMultiply(vc2, pow1));
+    XMVECTOR denominator = XMVectorAdd(g_XMOne, XMVectorMultiply(vc3, pow1));
+    XMVECTOR result = XMVectorDivide(numerator, denominator);
+
+    return XMVectorPow(result, vm2);
 }
 
-static const float scrgb_to_bt2100[3][3] = {
-        {2939026994.L / 585553224375.L, 9255011753.L / 3513319346250.L, 173911579.L / 501902763750.L},
-        {76515593.L / 138420033750.L,   6109575001.L / 830520202500.L,  75493061.L / 830520202500.L},
-        {12225392.L / 93230009375.L,    1772384008.L / 2517210253125.L, 18035212433.L / 2517210253125.L},
-};
-
-void matrixVectorMult(const float in[3], float out[3], const float matrix[3][3]) {
-    for (int i = 0; i < 3; i++) {
-        float res = 0;
-        for (int j = 0; j < 3; j++) {
-            res += matrix[i][j] * in[j];
-        }
-        out[i] = res;
-    }
-}
-
-float saturate(float x) {
-    return min(1, max(x, 0));
-}
+static const XMMATRIX scrgb_to_bt2100 = {
+        {2939026994.L / 585553224375.L,  76515593.L / 138420033750.L,   12225392.L / 93230009375.L,      0},
+        {9255011753.L / 3513319346250.L, 6109575001.L / 830520202500.L, 1772384008.L / 2517210253125.L,  0},
+        {173911579.L / 501902763750.L,   75493061.L / 830520202500.L,   18035212433.L / 2517210253125.L, 0},
+        {0,                              0,                             0,                               1}};
 
 typedef struct ThreadData {
     uint8_t *pixels;
@@ -57,7 +56,7 @@ typedef struct ThreadData {
 } ThreadData;
 
 DWORD WINAPI ThreadFunc(LPVOID lpParam) {
-    ThreadData *d = (ThreadData *) lpParam;
+    auto d = (ThreadData *) lpParam;
     uint8_t *pixels = d->pixels;
     uint8_t bytesPerColor = d->bytesPerColor;
     uint16_t *converted = d->converted;
@@ -70,27 +69,26 @@ DWORD WINAPI ThreadFunc(LPVOID lpParam) {
 
     for (uint32_t i = start; i < stop; i++) {
         for (uint32_t j = 0; j < width; j++) {
-            float bt2020[3];
+            XMVECTOR v;
 
             if (bytesPerColor == 4) {
-                matrixVectorMult((float *) pixels + i * 4 * width + 4 * j, bt2020, scrgb_to_bt2100);
+                v = XMLoadFloat3A((XMFLOAT3A *) ((FLOAT *) pixels + i * 4 * width + 4 * j));
             } else {
-                float cur[3];
-                _Float16 *cur16 = (_Float16 *) pixels + i * 4 * width + 4 * j;
-                for (int k = 0; k < 3; k++) {
-                    cur[k] = (float) cur16[k];
-                }
-                matrixVectorMult(cur, bt2020, scrgb_to_bt2100);
+                v = XMLoadHalf4((XMHALF4 * )((HALF *) pixels + i * 4 * width + 4 * j));
             }
 
-            for (int k = 0; k < 3; k++) {
-                bt2020[k] = saturate(bt2020[k]);
-            }
+            v = XMVector3Transform(v, scrgb_to_bt2100);
 
-            float maxComp = max(bt2020[0], max(bt2020[1], bt2020[2]));
+            v = XMVectorSaturate(v);
+
+            auto bt2020 = XMFLOAT3A();
+
+            XMStoreFloat3A(&bt2020, v);
+
+            float maxComp = max(bt2020.x, max(bt2020.y, bt2020.z));
 
 #ifdef MAXCLL_PERCENTILE
-            uint32_t nits = (uint32_t) roundf(maxComp * 10000);
+            auto nits = (uint32_t) roundf(maxComp * 10000);
             d->nitCounts[nits]++;
 #endif
             if (maxComp > maxMaxComp) {
@@ -99,10 +97,17 @@ DWORD WINAPI ThreadFunc(LPVOID lpParam) {
 
             sumOfMaxComp += maxComp;
 
+            const auto maxTarget = (float) ((1 << TARGET_BITS) - 1);
+            const auto maxIntermediate = (float) ((1 << INTERMEDIATE_BITS) - 1);
+
+            XMVECTOR quant = XMVectorRound(pq_inv_eotf(v) * XMVectorReplicate(maxTarget));
+            XMVECTOR scaled = XMVectorRound(quant * XMVectorReplicate(maxIntermediate / maxTarget));
+
+            auto result = XMFLOAT3A();
+            XMStoreFloat3A(&result, scaled);
+
             for (int k = 0; k < 3; k++) {
-                float quant = roundf(pq_inv_eotf(bt2020[k]) * ((1 << TARGET_BITS) - 1));
-                converted[(size_t) 3 * width * i + (size_t) 3 * j + k] = (uint16_t) roundf(
-                        quant / ((1 << TARGET_BITS) - 1) * ((1 << INTERMEDIATE_BITS) - 1));
+                converted[(size_t) 3 * width * i + (size_t) 3 * j + k] = (uint16_t) *(&result.x + k);
             }
         }
     }
@@ -113,8 +118,8 @@ DWORD WINAPI ThreadFunc(LPVOID lpParam) {
     return 0;
 }
 
-int write_png_file(FILE *file, png_bytep data, uint32_t width, uint32_t height, uint16_t maxCLL, uint16_t maxFALL) {
-    png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+int write_png_file(FILE *file, png_bytep data, uint32_t width, uint32_t height, uint32_t maxCLL, uint32_t maxFALL) {
+    png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
     if (!png) {
         fprintf(stderr, "Could not create PNG write struct\n");
         return 1;
@@ -138,17 +143,17 @@ int write_png_file(FILE *file, png_bytep data, uint32_t width, uint32_t height, 
             PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT
     );
 
-    unsigned char cicp_data[4] = {9, 16, 0, 1};
+    uint8_t cicp_data[4] = {9, 16, 0, 1};
 
-    unsigned char clli_data[8] = {
-            (maxCLL >> 24) & 0xFF,
-            (maxCLL >> 16) & 0xFF,
-            (maxCLL >> 8) & 0xFF,
-            maxCLL & 0xFF,
-            (maxFALL >> 24) & 0xFF,
-            (maxFALL >> 16) & 0xFF,
-            (maxFALL >> 8) & 0xFF,
-            maxFALL & 0xFF
+    uint8_t clli_data[8] = {
+            (uint8_t) ((maxCLL >> 24) & 0xFF),
+            (uint8_t) ((maxCLL >> 16) & 0xFF),
+            (uint8_t) ((maxCLL >> 8) & 0xFF),
+            (uint8_t) (maxCLL & 0xFF),
+            (uint8_t) ((maxFALL >> 24) & 0xFF),
+            (uint8_t) ((maxFALL >> 16) & 0xFF),
+            (uint8_t) ((maxFALL >> 8) & 0xFF),
+            (uint8_t) (maxFALL & 0xF),
     };
 
     png_unknown_chunk unknown_chunks[] = {
@@ -170,13 +175,17 @@ int write_png_file(FILE *file, png_bytep data, uint32_t width, uint32_t height, 
     // Swap endianness for 16-bit data
     png_set_swap(png);
 
-    png_bytep row_pointers[height];
-    for (int y = 0; y < height; y++) {
-        row_pointers[y] = data + y * width * 6; // 6 bytes per pixel for RGB16
+    auto *row_pointers = (png_bytep *) malloc(sizeof(png_bytep) * height);
+    if (row_pointers == nullptr) {
+        fprintf(stderr, "Failed to allocate PNG row pointers\n");
+    }
+
+    for (uint32_t y = 0; y < height; y++) {
+        row_pointers[y] = data + (size_t) y * width * 6; // 6 bytes per pixel for RGB16
     }
 
     png_write_image(png, row_pointers);
-    png_write_end(png, NULL);
+    png_write_end(png, nullptr);
 
     return 0;
 }
@@ -188,14 +197,14 @@ int main(int argc, char *argv[]) {
     }
 
     LPWSTR inputFile;
-    LPWSTR outputFile = L"output.png";
+    auto outputFile = (LPWSTR) L"output.png";
 
     {
         LPWSTR *szArglist;
         int nArgs;
 
         szArglist = CommandLineToArgvW(GetCommandLineW(), &nArgs);
-        if (NULL == szArglist) {
+        if (nullptr == szArglist) {
             fprintf(stderr, "CommandLineToArgvW failed\n");
             return 1;
         }
@@ -208,20 +217,20 @@ int main(int argc, char *argv[]) {
     }
 
     // Create a decoder
-    IWICBitmapDecoder *pDecoder = NULL;
+    IWICBitmapDecoder *pDecoder = nullptr;
 
     // Initialize COM
-    CoInitialize(NULL);
+    CoInitialize(nullptr);
 
     // The factory pointer
-    IWICImagingFactory *pFactory = NULL;
+    IWICImagingFactory *pFactory = nullptr;
 
     // Create the COM imaging factory
     HRESULT hr = CoCreateInstance(
-            &CLSID_WICImagingFactory,
-            NULL,
+            CLSID_WICImagingFactory,
+            nullptr,
             CLSCTX_INPROC_SERVER,
-            &IID_IWICImagingFactory,
+            IID_IWICImagingFactory,
             (void **) &pFactory);
 
     if (FAILED(hr)) {
@@ -229,10 +238,9 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    hr = pFactory->lpVtbl->CreateDecoderFromFilename(
-            pFactory,
+    hr = pFactory->CreateDecoderFromFilename(
             inputFile,                       // Image to be decoded
-            NULL,                            // Do not prefer a particular vendor
+            nullptr,                            // Do not prefer a particular vendor
             GENERIC_READ,                    // Desired read access to the file
             WICDecodeMetadataCacheOnDemand,  // Cache metadata when needed
             &pDecoder                        // Pointer to the decoder
@@ -244,18 +252,18 @@ int main(int argc, char *argv[]) {
     }
 
     // Retrieve the first frame of the image from the decoder
-    IWICBitmapFrameDecode *pFrame = NULL;
+    IWICBitmapFrameDecode *pFrame = nullptr;
 
-    hr = pDecoder->lpVtbl->GetFrame(pDecoder, 0, &pFrame);
+    hr = pDecoder->GetFrame(0, &pFrame);
 
     if (FAILED(hr)) {
         fprintf(stderr, "Failed to get frame\n");
         return 1;
     }
 
-    IWICBitmapSource *pBitmapSource = NULL;
+    IWICBitmapSource *pBitmapSource = nullptr;
 
-    hr = pFrame->lpVtbl->QueryInterface(pFrame, &IID_IWICBitmapSource, (void **) &pBitmapSource);
+    hr = pFrame->QueryInterface(IID_IWICBitmapSource, (void **) &pBitmapSource);
 
     if (FAILED(hr)) {
         fprintf(stderr, "Failed to get IWICBitmapSource\n");
@@ -264,7 +272,7 @@ int main(int argc, char *argv[]) {
 
     WICPixelFormatGUID pixelFormat;
 
-    hr = pBitmapSource->lpVtbl->GetPixelFormat(pBitmapSource, &pixelFormat);
+    hr = pBitmapSource->GetPixelFormat(&pixelFormat);
 
     if (FAILED(hr)) {
         fprintf(stderr, "Failed to get pixel format\n");
@@ -273,9 +281,9 @@ int main(int argc, char *argv[]) {
 
     uint8_t bytesPerColor;
 
-    if (IsEqualGUID((void *) &pixelFormat, (void *) &GUID_WICPixelFormat128bppRGBAFloat)) {
+    if (IsEqualGUID(pixelFormat, GUID_WICPixelFormat128bppRGBAFloat)) {
         bytesPerColor = 4;
-    } else if (IsEqualGUID((void *) &pixelFormat, (void *) &GUID_WICPixelFormat64bppRGBAHalf)) {
+    } else if (IsEqualGUID(pixelFormat, GUID_WICPixelFormat64bppRGBAHalf)) {
         bytesPerColor = 2;
     } else {
         fprintf(stderr, "Unsupported pixel format\n");
@@ -284,7 +292,7 @@ int main(int argc, char *argv[]) {
 
     uint32_t width, height;
 
-    hr = pBitmapSource->lpVtbl->GetSize(pBitmapSource, &width, &height);
+    hr = pBitmapSource->GetSize(&width, &height);
 
     if (FAILED(hr)) {
         fprintf(stderr, "Failed to get size\n");
@@ -292,16 +300,16 @@ int main(int argc, char *argv[]) {
     }
 
     size_t converted_size = sizeof(uint16_t) * width * height * 3;
-    uint16_t *converted = malloc(converted_size);
+    auto converted = (uint16_t *) malloc(converted_size);
 
-    if (converted == NULL) {
+    if (converted == nullptr) {
         fprintf(stderr, "Failed to allocate converted pixels\n");
         return 1;
     }
 
     SYSTEM_INFO systemInfo;
     GetSystemInfo(&systemInfo);
-    uint32_t numThreads = systemInfo.dwNumberOfProcessors;
+    uint32_t numThreads = systemInfo.dwNumberOfProcessors / 2;
     printf("Using %d threads\n", numThreads);
 
     puts("Converting pixels to BT.2100 PQ...");
@@ -313,9 +321,9 @@ int main(int argc, char *argv[]) {
         UINT cbStride = width * bytesPerColor * 4;
         UINT cbBufferSize = cbStride * height;
 
-        uint8_t *pixels = malloc(cbBufferSize);
+        auto pixels = (uint8_t *) malloc(cbBufferSize);
 
-        if (converted == NULL) {
+        if (pixels == nullptr) {
             fprintf(stderr, "Failed to allocate float pixels\n");
             return 1;
         }
@@ -325,18 +333,18 @@ int main(int argc, char *argv[]) {
         rc.X = 0;
         rc.Width = (int) width;
         rc.Height = (int) height;
-        hr = pBitmapSource->lpVtbl->CopyPixels(pBitmapSource,
-                                               &rc,
-                                               cbStride,
-                                               cbBufferSize,
-                                               pixels);
+        hr = pBitmapSource->CopyPixels(
+                &rc,
+                cbStride,
+                cbBufferSize,
+                pixels);
 
         if (FAILED(hr)) {
             fprintf(stderr, "Failed to copy pixels\n");
             exit(1);
         }
 
-        uint32_t convThreads = min(numThreads, 64);
+        uint32_t convThreads = min(numThreads, (uint32_t) 8);
 
         uint32_t chunkSize = height / convThreads;
 
@@ -345,13 +353,18 @@ int main(int argc, char *argv[]) {
             chunkSize = 1;
         }
 
-        HANDLE hThreadArray[convThreads];
-        ThreadData *threadData[convThreads];
-        DWORD dwThreadIdArray[convThreads];
+        auto hThreadArray = (HANDLE *) malloc(sizeof(HANDLE) * convThreads);
+        auto threadData = (ThreadData **) malloc(sizeof(ThreadData *) * convThreads);
+        auto dwThreadIdArray = (DWORD *) malloc(sizeof(DWORD) * convThreads);
+
+        if (hThreadArray == nullptr || threadData == nullptr || dwThreadIdArray == nullptr) {
+            fprintf(stderr, "Failed to allocate array for thread data\n");
+            return 1;
+        }
 
         for (uint32_t i = 0; i < convThreads; i++) {
-            threadData[i] = malloc(sizeof(ThreadData));
-            if (threadData[i] == NULL) {
+            threadData[i] = (ThreadData *) malloc(sizeof(ThreadData));
+            if (threadData[i] == nullptr) {
                 fprintf(stderr, "Failed to allocate thread data\n");
                 return 1;
             }
@@ -368,11 +381,11 @@ int main(int argc, char *argv[]) {
             }
 
 #ifdef MAXCLL_PERCENTILE
-            threadData[i]->nitCounts = calloc(10000, sizeof(typeof(threadData[i]->nitCounts[0])));
+            threadData[i]->nitCounts = (uint32_t *) calloc(10000, sizeof(uint32_t));
 #endif
 
             HANDLE hThread = CreateThread(
-                    NULL,                   // default security attributes
+                    nullptr,                   // default security attributes
                     0,                      // use default stack size
                     ThreadFunc,       // thread function name
                     threadData[i],          // argument to thread function
@@ -413,8 +426,8 @@ int main(int argc, char *argv[]) {
 #ifdef MAXCLL_PERCENTILE
         uint16_t currentIdx = maxCLL;
         uint64_t count = 0;
-        uint64_t countTarget = (uint64_t) round((1 - MAXCLL_PERCENTILE) * (double) ((uint64_t) width * height));
-        while (1) {
+        auto countTarget = (uint64_t) round((1 - MAXCLL_PERCENTILE) * (double) ((uint64_t) width * height));
+        while (true) {
             for (uint32_t i = 0; i < convThreads; i++) {
                 count += threadData[i]->nitCounts[currentIdx];
             }
@@ -432,6 +445,10 @@ int main(int argc, char *argv[]) {
 #endif
             free(threadData[i]);
         }
+
+        free(hThreadArray);
+        free(threadData);
+        free(dwThreadIdArray);
 
         maxPALL = (uint16_t) round(10000 * (sumOfMaxComp / (double) ((uint64_t) width * height)));
 

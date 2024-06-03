@@ -1,12 +1,9 @@
 cmake_minimum_required(VERSION 3.26)
-project(jxr_to_png C)
+project(jxr_to_png)
 
-set(CMAKE_C_STANDARD 17)
+set(CMAKE_CXX_STANDARD 17)
 
-add_compile_options(-ffast-math)
+add_compile_options(/fp:fast /std:c++latest)
 
-find_library(PNG_LIBRARY png PATHS ${PROJECT_SOURCE_DIR}/lib REQUIRED NO_DEFAULT_PATH)
-find_library(Z_LIBRARY z PATHS ${PROJECT_SOURCE_DIR}/lib REQUIRED NO_DEFAULT_PATH)
-
-add_executable(jxr_to_png main.c)
-target_link_libraries(jxr_to_png ${PNG_LIBRARY} ${Z_LIBRARY} "$<$<CONFIG:Release>:-s -static>")
+add_executable(jxr_to_png main.cpp)
+target_link_libraries(jxr_to_png windowscodecs ${PROJECT_SOURCE_DIR}/lib/libpng.lib ${PROJECT_SOURCE_DIR}/lib/zlibstatic.lib)
