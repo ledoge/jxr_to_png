@@ -1,4 +1,5 @@
 ## [Download latest release](https://github.com/ledoge/jxr_to_png/releases/latest/download/release.zip)
+([Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) required, which you likely already have installed)
 
 # About
 This is a simple command line tool for converting HDR JPEG-XR files, such as Windows HDR screenshots, to PNG.
