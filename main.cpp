@@ -178,6 +178,7 @@ int write_png_file(FILE *file, png_bytep data, uint32_t width, uint32_t height, 
     auto *row_pointers = (png_bytep *) malloc(sizeof(png_bytep) * height);
     if (row_pointers == nullptr) {
         fprintf(stderr, "Failed to allocate PNG row pointers\n");
+        return 1;
     }
 
     for (uint32_t y = 0; y < height; y++) {
