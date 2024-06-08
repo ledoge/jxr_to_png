@@ -310,7 +310,7 @@ int main(int argc, char *argv[]) {
 
     SYSTEM_INFO systemInfo;
     GetSystemInfo(&systemInfo);
-    uint32_t numThreads = systemInfo.dwNumberOfProcessors / 2;
+    uint32_t numThreads = min(8, systemInfo.dwNumberOfProcessors / 2);
     printf("Using %d threads\n", numThreads);
 
     puts("Converting pixels to BT.2100 PQ...");
@@ -345,7 +345,7 @@ int main(int argc, char *argv[]) {
             exit(1);
         }
 
-        uint32_t convThreads = min(numThreads, (uint32_t) 8);
+        uint32_t convThreads = numThreads;
 
         uint32_t chunkSize = height / convThreads;
 
