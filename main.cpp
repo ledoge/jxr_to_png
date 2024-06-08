@@ -72,7 +72,7 @@ DWORD WINAPI ThreadFunc(LPVOID lpParam) {
             XMVECTOR v;
 
             if (bytesPerColor == 4) {
-                v = XMLoadFloat3A((XMFLOAT3A *) ((FLOAT *) pixels + i * 4 * width + 4 * j));
+                v = XMLoadFloat4A((XMFLOAT4A *) ((FLOAT *) pixels + i * 4 * width + 4 * j));
             } else {
                 v = XMLoadHalf4((XMHALF4 * )((HALF *) pixels + i * 4 * width + 4 * j));
             }
@@ -81,9 +81,9 @@ DWORD WINAPI ThreadFunc(LPVOID lpParam) {
 
             v = XMVectorSaturate(v);
 
-            auto bt2020 = XMFLOAT3A();
+            auto bt2020 = XMFLOAT4A();
 
-            XMStoreFloat3A(&bt2020, v);
+            XMStoreFloat4A(&bt2020, v);
 
             float maxComp = max(bt2020.x, max(bt2020.y, bt2020.z));
 
@@ -103,8 +103,8 @@ DWORD WINAPI ThreadFunc(LPVOID lpParam) {
             XMVECTOR quant = XMVectorRound(pq_inv_eotf(v) * XMVectorReplicate(maxTarget));
             XMVECTOR scaled = XMVectorRound(quant * XMVectorReplicate(maxIntermediate / maxTarget));
 
-            auto result = XMFLOAT3A();
-            XMStoreFloat3A(&result, scaled);
+            auto result = XMFLOAT4A();
+            XMStoreFloat4A(&result, scaled);
 
             for (int k = 0; k < 3; k++) {
                 converted[(size_t) 3 * width * i + (size_t) 3 * j + k] = (uint16_t) *(&result.x + k);
