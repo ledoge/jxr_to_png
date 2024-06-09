@@ -26,13 +26,13 @@ static const XMVECTOR vc1 = XMVectorReplicate(107.0f / 128.0f);
 static const XMVECTOR vc2 = XMVectorReplicate(2413.0f / 128.0f);
 static const XMVECTOR vc3 = XMVectorReplicate(2392.0f / 128.0f);
 
-XMVECTOR pq_inv_eotf(XMVECTOR y) {
+inline XMVECTOR pq_inv_eotf(XMVECTOR y) {
     XMVECTOR pow1 = XMVectorPow(y, vm1);
-    XMVECTOR numerator = XMVectorAdd(vc1, XMVectorMultiply(vc2, pow1));
-    XMVECTOR denominator = XMVectorAdd(g_XMOne, XMVectorMultiply(vc3, pow1));
-    XMVECTOR result = XMVectorDivide(numerator, denominator);
-
-    return XMVectorPow(result, vm2);
+    return XMVectorPow(
+            XMVectorDivide(
+                    XMVectorAdd(vc1, XMVectorMultiply(vc2, pow1)),
+                    XMVectorAdd(g_XMOne, XMVectorMultiply(vc3, pow1))),
+            vm2);
 }
 
 static const XMMATRIX scrgb_to_bt2100 = {
@@ -77,9 +77,7 @@ DWORD WINAPI ThreadFunc(LPVOID lpParam) {
                 v = XMLoadHalf4((XMHALF4 * )((HALF *) pixels + i * 4 * width + 4 * j));
             }
 
-            v = XMVector3Transform(v, scrgb_to_bt2100);
-
-            v = XMVectorSaturate(v);
+            v = XMVectorSaturate(XMVector3Transform(v, scrgb_to_bt2100));
 
             auto bt2020 = XMFLOAT4A();
 
@@ -100,8 +98,13 @@ DWORD WINAPI ThreadFunc(LPVOID lpParam) {
             const auto maxTarget = (float) ((1 << TARGET_BITS) - 1);
             const auto maxIntermediate = (float) ((1 << INTERMEDIATE_BITS) - 1);
 
-            XMVECTOR quant = XMVectorRound(pq_inv_eotf(v) * XMVectorReplicate(maxTarget));
-            XMVECTOR scaled = XMVectorRound(quant * XMVectorReplicate(maxIntermediate / maxTarget));
+            XMVECTOR scaled = XMVectorRound(
+                    XMVectorMultiply(
+                            XMVectorRound(
+                                    XMVectorMultiply(
+                                            pq_inv_eotf(v),
+                                            XMVectorReplicate(maxTarget))),
+                            XMVectorReplicate(maxIntermediate / maxTarget)));
 
             auto result = XMFLOAT4A();
             XMStoreFloat4A(&result, scaled);
