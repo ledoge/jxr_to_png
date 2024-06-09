@@ -8,7 +8,7 @@
 #include <cmath>
 #include "DirectXMath/DirectXMath.h"
 #include "DirectXMath/DirectXPackedVector.h"
-#include "png.h"
+#include "libpng/png.h"
 #include "icc_profile.h"
 
 using namespace DirectX;
