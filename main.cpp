@@ -156,7 +156,7 @@ int write_png_file(FILE *file, png_bytep data, uint32_t width, uint32_t height, 
             (uint8_t) ((maxFALL >> 24) & 0xFF),
             (uint8_t) ((maxFALL >> 16) & 0xFF),
             (uint8_t) ((maxFALL >> 8) & 0xFF),
-            (uint8_t) (maxFALL & 0xF),
+            (uint8_t) (maxFALL & 0xFF),
     };
 
     png_unknown_chunk unknown_chunks[] = {
