@@ -459,7 +459,7 @@ int main(int argc, char *argv[]) {
         free(pixels);
     }
 
-    printf("Computed HDR metadata: %u MaxCLL, %u MaxPALL\n", maxCLL, maxPALL);
+    printf("Computed HDR metadata: %u MaxCLL, %u MaxFALL\n", maxCLL, maxPALL);
 
     FILE *f = _wfopen(outputFile, L"wb");
 
