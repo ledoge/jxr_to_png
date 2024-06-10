@@ -98,20 +98,26 @@ DWORD WINAPI ThreadFunc(LPVOID lpParam) {
             const auto maxTarget = (float) ((1 << TARGET_BITS) - 1);
             const auto maxIntermediate = (float) ((1 << INTERMEDIATE_BITS) - 1);
 
-            XMVECTOR scaled = XMVectorRound(
+            __m128i vint = _mm_cvtps_epi32(
                     XMVectorMultiply(
-                            XMVectorRound(
+                            _mm_round_ps(
                                     XMVectorMultiply(
                                             pq_inv_eotf(v),
-                                            XMVectorReplicate(maxTarget))),
+                                            XMVectorReplicate(maxTarget)),
+                                    _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC),
                             XMVectorReplicate(maxIntermediate / maxTarget)));
 
-            auto result = XMFLOAT4A();
-            XMStoreFloat4A(&result, scaled);
+            __m128i vshort = _mm_packus_epi32(vint, vint);
 
-            for (int k = 0; k < 3; k++) {
-                converted[(size_t) 3 * width * i + (size_t) 3 * j + k] = (uint16_t) *(&result.x + k);
-            }
+            const __m128i reverse_endian_mask = _mm_set_epi8(
+                    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 4, 5, 2, 3, 0, 1);
+            vshort = _mm_shuffle_epi8(vshort, reverse_endian_mask);
+
+            uint16_t *dst = &converted[(size_t) 3 * width * i + (size_t) 3 * j];
+
+            uint16_t result[4];
+            _mm_storel_epi64((__m128i *) result, vshort);
+            memcpy(dst, result, 3 * sizeof(uint16_t));
         }
     }
 
@@ -177,9 +183,6 @@ int write_png_file(FILE *file, png_bytep data, uint32_t width, uint32_t height, 
     png_set_sBIT(png, info, &sig_bit);
 
     png_write_info(png, info);
-
-    // Swap endianness for 16-bit data
-    png_set_swap(png);
 
     auto *row_pointers = (png_bytep *) malloc(sizeof(png_bytep) * height);
     if (row_pointers == nullptr) {
