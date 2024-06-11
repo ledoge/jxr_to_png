@@ -179,6 +179,8 @@ int write_png_file(FILE *file, png_bytep data, uint32_t width, uint32_t height, 
 
     png_set_iCCP(png, info, icc_name, PNG_COMPRESSION_TYPE_BASE, icc_data, sizeof(icc_data));
 
+    png_set_cHRM_fixed(png, info, 31270, 32900, 70800, 29200, 17000, 79700, 13100, 4600);
+
     png_color_8 sig_bit = {.red = TARGET_BITS, .green = TARGET_BITS, .blue = TARGET_BITS};
     png_set_sBIT(png, info, &sig_bit);
 
