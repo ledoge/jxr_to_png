@@ -96,16 +96,10 @@ DWORD WINAPI ThreadFunc(LPVOID lpParam) {
             sumOfMaxComp += maxComp;
 
             const auto maxTarget = (float) ((1 << TARGET_BITS) - 1);
-            const auto maxIntermediate = (float) ((1 << INTERMEDIATE_BITS) - 1);
 
-            __m128i vint = _mm_cvtps_epi32(
-                    XMVectorMultiply(
-                            _mm_round_ps(
-                                    XMVectorMultiply(
-                                            pq_inv_eotf(v),
-                                            XMVectorReplicate(maxTarget)),
-                                    _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC),
-                            XMVectorReplicate(maxIntermediate / maxTarget)));
+            __m128i vint = _mm_cvtps_epi32(XMVectorMultiply(pq_inv_eotf(v), XMVectorReplicate(maxTarget)));
+
+            vint = _mm_slli_epi32(vint, INTERMEDIATE_BITS - TARGET_BITS);
 
             __m128i vshort = _mm_packus_epi32(vint, vint);
 
