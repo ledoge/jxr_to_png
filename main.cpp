@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <wincodec.h>
 #include <cmath>
+#include <Shlwapi.h>
 #include "DirectXMath/DirectXMath.h"
 #include "DirectXMath/DirectXPackedVector.h"
 #include "libpng/png.h"
@@ -202,8 +203,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    LPWSTR inputFile;
-    auto outputFile = (LPWSTR) L"output.png";
+    LPWSTR inputFile, outputFile;
 
     {
         LPWSTR *szArglist;
@@ -217,8 +217,23 @@ int main(int argc, char *argv[]) {
 
         inputFile = szArglist[1];
 
+        if (!PathMatchSpecW(inputFile, L"*.jxr")) {
+            fprintf(stderr, "Input must be .jxr file\n");
+            return 1;
+        }
+
         if (argc == 3) {
             outputFile = szArglist[2];
+        } else {
+            auto inputName = PathFindFileNameW(inputFile);
+            size_t len = wcslen(inputName);
+            outputFile = (LPWSTR) malloc((len + 1) * sizeof(wchar_t));
+            if (outputFile == nullptr) {
+                fprintf(stderr, "Failed to allocate output name\n");
+                return 1;
+            }
+            memcpy(outputFile, inputName, (len - 3) * sizeof(wchar_t));
+            memcpy(outputFile + len - 3, L"png", 4 * sizeof(wchar_t));
         }
     }
 
