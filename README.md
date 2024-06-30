@@ -2,7 +2,7 @@
 ([Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) required, which you likely already have installed)
 
 # About
-This is a simple command line tool for converting HDR JPEG-XR files, such as Windows HDR screenshots, to PNG.
+This is a simple command line tool for converting HDR JPEG XR files, such as Windows HDR screenshots, to PNG.
 
 The output format is 16 bit PNG with BT.2100 + PQ color space, but the actual data is quantized to 10 bits to try to keep the size reasonably low. The files should display properly in any Chromium-based browser, which includes Electron apps like the desktop version of Discord.
 
