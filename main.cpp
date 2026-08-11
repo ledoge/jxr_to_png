@@ -162,7 +162,7 @@ int write_png_file(FILE *file, png_bytep data, uint32_t width, uint32_t height, 
 
     png_unknown_chunk unknown_chunks[] = {
             {.name = {'c', 'I', 'C', 'P'}, .data = cicp_data, .size = 4, .location = PNG_HAVE_IHDR},
-            {.name = {'c', 'L', 'L', 'i'}, .data = clli_data, .size = 8, .location = PNG_HAVE_IHDR}
+            {.name = {'c', 'L', 'L', 'I'}, .data = clli_data, .size = 8, .location = PNG_HAVE_IHDR}
     };
 
     int num_unknowns = sizeof(unknown_chunks) / sizeof(unknown_chunks[0]);
